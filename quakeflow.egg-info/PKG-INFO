@@ -1,0 +1,62 @@
+Metadata-Version: 2.4
+Name: quakeflow
+Version: 1.0.0
+Summary: A comprehensive template matching and magnitude estimation pipeline
+Home-page: https://github.com/yourusername/quakeflow
+Author: QuakeFlow Team
+Author-email: example@email.com
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Science/Research
+Classifier: Topic :: Scientific/Engineering
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.21.0
+Requires-Dist: pandas>=1.3.0
+Requires-Dist: scipy>=1.7.0
+Requires-Dist: matplotlib>=3.4.0
+Requires-Dist: scikit-learn>=0.24.0
+Requires-Dist: obspy>=1.2.0
+Requires-Dist: pyrocko>=2021.09.0
+Requires-Dist: typer>=0.4.0
+Requires-Dist: rich>=10.0.0
+Requires-Dist: pyyaml>=5.4.0
+Requires-Dist: joblib>=1.0.0
+Requires-Dist: tqdm>=4.62.0
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
+# QuakeFlow
+
+A comprehensive template matching and magnitude estimation pipeline for seismic data analysis.
+
+## Features
+
+- **Template Creation**: Extract templates from catalog events with automatic onset detection
+- **Template Matching**: Fast correlation-based matching with clustering to reduce redundancy
+- **Magnitude Estimation**: Distance-corrected magnitude estimation with b-value calculation
+- **Visualization**: Comprehensive plots for result evaluation
+- **Parallel Processing**: Efficient parallel processing of continuous data
+
+## Installation
+
+```bash
+# Install from source
+git clone https://github.com/yourusername/quakeflow.git
+cd quakeflow
+pip install -e .
+
+# Or install dependencies directly
+pip install -r requirements.txt

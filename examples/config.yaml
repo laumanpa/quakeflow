@@ -1,0 +1,15 @@
+paths:
+  base_dir: "./template_matching"
+  templates_dir: "./templates"
+  output_dir: "./results"
+
+stations:
+  station_code: "GWBD"
+  channels: ["Z", "N", "E"]
+  lat: 50.114
+  lon: 7.9021
+
+template_matching:
+  similarity_threshold: 0.5
+  days_to_process: 365
+  start_date: "2018-01-01"

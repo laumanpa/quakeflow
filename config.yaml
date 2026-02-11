@@ -1,0 +1,44 @@
+evaluation:
+  attenuation_factor: 1.0
+  mc_method: maxcurvature
+  min_magnitude: 0.0
+  reference_distance: 1.0
+paths:
+  base_dir: template_matching
+  catalog_file: null
+  output_dir: results
+  plots_dir: plots
+  template_info_file: template_info.csv
+  templates_dir: templates
+squirrel:
+  persistent: eifel3
+stations:
+  channels:
+  - Z
+  - N
+  - E
+  lat: 50.114
+  lon: 7.9021
+  primary_channel: Z
+  station_code: KOGO
+template_creation:
+  filter_max: 30.0
+  filter_min: 1.0
+  lta_window: 5.0
+  onset_thr_off: 1.0
+  onset_thr_on: 3.5
+  post_event: 5.0
+  pre_event: 0.5
+  sta_window: 0.5
+  noise_window: 1.0
+template_matching:
+  cluster_eps: 0.2
+  days_to_process: 365
+  distance_samples: 200
+  min_spike_ratio: 3.0
+  n_jobs: 4
+  post_amplitude: 6.0
+  pre_amplitude: 0.5
+  similarity_threshold: 0.5
+  start_date: '2018-01-01'
+  min_snr: 2.0
