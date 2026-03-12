@@ -10,3 +10,5 @@ rich>=10.0.0
 pyyaml>=5.4.0
 joblib>=1.0.0
 tqdm>=4.62.0
+tqdm_joblib
+scatseisnet

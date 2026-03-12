@@ -610,11 +610,19 @@ def plot_bayes_qc(df, trace, outdir):
 
 def plot_waveform_comparison(template_trace, detected_trace, outdir: Path, event_id: str, similarity: float):
     outdir.mkdir(exist_ok=True)
+    if template_trace is None or detected_trace is None:
+        return
+    if len(template_trace) == 0 or len(detected_trace) == 0:
+        return
     template_trace = template_trace[0]
     detected_trace = detected_trace[0]
+    tpl_max = np.max(np.abs(template_trace.data))
+    det_max = np.max(np.abs(detected_trace.data))
+    if tpl_max == 0 or det_max == 0:
+        return
     plt.figure(figsize=(10, 4))
-    plt.plot(template_trace.times(), template_trace.data / np.max(np.abs(template_trace.data)), label="Template", color="blue")
-    plt.plot(detected_trace.times(), detected_trace.data / np.max(np.abs(detected_trace.data)), label="Detected", color="orange", alpha=0.7)
+    plt.plot(template_trace.times(), template_trace.data / tpl_max, label="Template", color="blue")
+    plt.plot(detected_trace.times(), detected_trace.data / det_max, label="Detected", color="orange", alpha=0.7)
     plt.xlabel("Time (s)")
     plt.ylabel("Normalized Amplitude")
     plt.title(f"Waveform Comparison for Event {event_id} (Similarity: {similarity:.2f})")
@@ -623,3 +631,220 @@ def plot_waveform_comparison(template_trace, detected_trace, outdir: Path, event
     plt.tight_layout()
     plt.savefig(outdir / f"waveform_comparison_{event_id}.png", dpi=200)
     plt.close()
+
+
+def plot_template_redetection(catalog_df: pd.DataFrame,
+                              template_info_df: pd.DataFrame,
+                              output_dir: Path,
+                              mapping_df: pd.DataFrame = None):
+    """Plot how many templates were re-detected vs total templates.
+
+    Produces a two-panel figure:
+      Left  – horizontal bar chart: detected (green) vs undetected (red) count.
+      Right – bar chart with detection count per template, sorted descending.
+
+    Parameters
+    ----------
+    catalog_df : DataFrame
+        Final detection catalog (must contain ``template_id`` or
+        ``original_template_id``).
+    template_info_df : DataFrame
+        Template info CSV (must contain ``template_id``).
+    output_dir : Path
+        Directory where the plot is saved.
+    mapping_df : DataFrame, optional
+        Template ID mapping with ``original_template_id`` and
+        ``representative_id`` columns.  Used to map back detections to
+        original templates.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    n_total = len(template_info_df)
+    if n_total == 0:
+        return
+
+    # Determine which original template IDs produced detections
+    if mapping_df is not None and 'original_template_id' in mapping_df.columns:
+        # Map detection template_ids back to all original template IDs
+        det_repr_ids = set(catalog_df['template_id'].dropna().unique())
+        detected_orig_ids = set(
+            mapping_df.loc[
+                mapping_df['representative_id'].isin(det_repr_ids),
+                'original_template_id'
+            ].values
+        )
+    elif 'original_template_id' in catalog_df.columns:
+        detected_orig_ids = set(catalog_df['original_template_id'].dropna().unique())
+    else:
+        detected_orig_ids = set(catalog_df['template_id'].dropna().unique())
+
+    all_tpl_ids = set(template_info_df['template_id'].values)
+    n_detected = len(detected_orig_ids & all_tpl_ids)
+    n_undetected = n_total - n_detected
+
+    # Count detections per original template
+    if 'original_template_id' in catalog_df.columns:
+        det_counts = catalog_df['original_template_id'].value_counts()
+    else:
+        det_counts = catalog_df['template_id'].value_counts()
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5), gridspec_kw={'width_ratios': [1, 2.5]})
+
+    # --- Left panel: detected vs undetected summary ---
+    ax = axes[0]
+    bars = ax.barh(['Detected', 'Undetected'], [n_detected, n_undetected],
+                   color=['#2ecc71', '#e74c3c'], edgecolor='k')
+    ax.bar_label(bars, fmt='%d', fontsize=11)
+    ax.set_xlabel('Number of templates')
+    ax.set_title(f'Template Re-detection\n({n_detected}/{n_total} = {100*n_detected/n_total:.0f}%)')
+    ax.set_xlim(0, max(n_detected, n_undetected) * 1.25)
+    ax.grid(axis='x', alpha=0.3)
+
+    # --- Right panel: detections per template ---
+    ax2 = axes[1]
+    if len(det_counts) > 0:
+        # Limit to top 50 templates for readability
+        top_n = min(50, len(det_counts))
+        top = det_counts.head(top_n)
+        colors = plt.cm.viridis(np.linspace(0.3, 0.9, len(top)))
+        ax2.bar(range(len(top)), top.values, color=colors, edgecolor='k', linewidth=0.3)
+        ax2.set_xlabel('Template (sorted by detections)')
+        ax2.set_ylabel('Number of detections')
+        ax2.set_title(f'Detections per Template (top {top_n})')
+        ax2.set_xticks([])
+        ax2.grid(axis='y', alpha=0.3)
+
+        # Annotate the most prolific template
+        ax2.annotate(f'Tpl {top.index[0]}\n({top.values[0]})',
+                     xy=(0, top.values[0]),
+                     xytext=(3, top.values[0] * 1.1),
+                     fontsize=8, ha='left',
+                     arrowprops=dict(arrowstyle='->', color='gray'))
+    else:
+        ax2.text(0.5, 0.5, 'No detections', ha='center', va='center',
+                 transform=ax2.transAxes, fontsize=14, color='gray')
+
+    fig.tight_layout()
+    fig.savefig(output_dir / 'template_redetection.png', dpi=200)
+    plt.close(fig)
+
+
+def plot_mw_vs_estimated(catalog_df: pd.DataFrame,
+                         template_info_df: pd.DataFrame,
+                         output_dir: Path,
+                         mapping_df: pd.DataFrame = None):
+    """Plot catalog Mw vs estimated magnitude for self-detections.
+
+    For each detection that corresponds to a known template event, plot
+    the catalog magnitude (Mw) on the x-axis against the estimated
+    magnitude on the y-axis.  Adds a 1:1 reference line and a linear
+    best-fit.
+
+    Parameters
+    ----------
+    catalog_df : DataFrame
+        Final detection catalog with ``est_magnitude`` and ``template_id``
+        (or ``original_template_id``).
+    template_info_df : DataFrame
+        Template info with ``template_id`` and ``magnitude`` columns.
+    output_dir : Path
+        Directory where the plot is saved.
+    mapping_df : DataFrame, optional
+        Mapping with ``original_template_id`` ↔ ``representative_id``.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build a lookup: original_template_id → catalog magnitude
+    if 'magnitude' not in template_info_df.columns:
+        return
+    tpl_mag = template_info_df.set_index('template_id')['magnitude'].to_dict()
+
+    # Resolve detection template_id → original_template_id → catalog mag
+    df = catalog_df.copy()
+    if mapping_df is not None and 'original_template_id' in mapping_df.columns:
+        repr_to_orig = (
+            mapping_df.groupby('representative_id')['original_template_id']
+            .apply(list).to_dict()
+        )
+        # For detections: use original_template_id if available
+        if 'original_template_id' in df.columns:
+            df['catalog_mw'] = df['original_template_id'].map(tpl_mag)
+        else:
+            # Map via representative → first original that has a magnitude
+            def _first_mag(repr_id):
+                for oid in repr_to_orig.get(repr_id, []):
+                    m = tpl_mag.get(oid)
+                    if m is not None and np.isfinite(m):
+                        return m
+                return np.nan
+            df['catalog_mw'] = df['template_id'].apply(_first_mag)
+    elif 'original_template_id' in df.columns:
+        df['catalog_mw'] = df['original_template_id'].map(tpl_mag)
+    else:
+        df['catalog_mw'] = df['template_id'].map(tpl_mag)
+
+    # Also try using 'magnitude' or 'tpl_magnitude' columns directly if present
+    if 'tpl_magnitude' in df.columns:
+        mask = df['catalog_mw'].isna()
+        df.loc[mask, 'catalog_mw'] = df.loc[mask, 'tpl_magnitude']
+    elif 'magnitude' in df.columns:
+        mask = df['catalog_mw'].isna()
+        df.loc[mask, 'catalog_mw'] = df.loc[mask, 'magnitude']
+
+    # Filter to rows with both values
+    valid = df[['catalog_mw', 'est_magnitude']].dropna()
+    if len(valid) < 2:
+        return
+
+    mw = valid['catalog_mw'].values.astype(float)
+    est = valid['est_magnitude'].values.astype(float)
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    # Scatter
+    sim_col = valid['similarity'].values if 'similarity' in valid.columns else None
+    if sim_col is not None:
+        sc = ax.scatter(mw, est, s=12, alpha=0.5, c=sim_col,
+                        cmap='viridis', edgecolors='k', linewidth=0.3)
+        cbar = fig.colorbar(sc, ax=ax, shrink=0.8)
+        cbar.set_label('CC similarity')
+    else:
+        ax.scatter(mw, est, s=12, alpha=0.5, c='steelblue',
+                   edgecolors='k', linewidth=0.3)
+
+    # 1:1 line
+    lo = min(mw.min(), est.min()) - 0.2
+    hi = max(mw.max(), est.max()) + 0.2
+    ax.plot([lo, hi], [lo, hi], 'k--', lw=1, label='1:1')
+
+    # Linear fit
+    try:
+        slope, intercept, r_value, _, _ = linregress(mw, est)
+        x_fit = np.linspace(lo, hi, 50)
+        ax.plot(x_fit, slope * x_fit + intercept, 'r-', lw=1.5,
+                label=f'Fit: y={slope:.2f}x{intercept:+.2f} (R²={r_value**2:.2f})')
+    except Exception:
+        pass
+
+    # Residual stats
+    residual = est - mw
+    rmse = np.sqrt(np.mean(residual ** 2))
+    mae = np.mean(np.abs(residual))
+    ax.text(0.05, 0.95, f'N = {len(mw)}\nRMSE = {rmse:.2f}\nMAE = {mae:.2f}',
+            transform=ax.transAxes, fontsize=9, va='top',
+            bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray'))
+
+    ax.set_xlabel('Catalog Magnitude (Mw)')
+    ax.set_ylabel('Estimated Magnitude')
+    ax.set_title('Catalog Mw vs Estimated Magnitude')
+    ax.legend(loc='lower right')
+    ax.set_aspect('equal', adjustable='box')
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(lo, hi)
+    ax.grid(alpha=0.3)
+
+    fig.tight_layout()
+    fig.savefig(output_dir / 'mw_vs_estimated_magnitude.png', dpi=200)
+    plt.close(fig)

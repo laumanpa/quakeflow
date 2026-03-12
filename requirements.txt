@@ -18,4 +18,5 @@ pyyaml>=5.4.0
 # Utilities
 joblib>=1.0.0
 tqdm>=4.62.0
+tqdm_joblib
 scatseisnet

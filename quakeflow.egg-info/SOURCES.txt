@@ -12,9 +12,15 @@ quakeflow.egg-info/requires.txt
 quakeflow.egg-info/top_level.txt
 quakeflow/core/__init__.py
 quakeflow/core/base.py
+quakeflow/core/deduplicate.py
 quakeflow/core/evaluator.py
+quakeflow/core/gpu_correlator.py
+quakeflow/core/realtime.py
+quakeflow/core/relocator.py
+quakeflow/core/sds_client.py
 quakeflow/core/template_creator.py
 quakeflow/core/template_matcher.py
+quakeflow/core/template_updater.py
 quakeflow/utils/__init__.py
 quakeflow/utils/helpers.py
 quakeflow/utils/plotting.py

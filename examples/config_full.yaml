@@ -1,0 +1,385 @@
+# =============================================================================
+# QuakeFlow v2.0.0 — Full Configuration Reference
+# =============================================================================
+#
+# Copy this file, adjust the values to your project, and pass it to the CLI:
+#   quakeflow --config my_config.yaml run
+#
+# Every key shown below is optional.  If omitted, the default value (shown in
+# the inline comment) is used.  Sections can be omitted entirely.
+#
+# YAML tips:
+#   - Use quotes around dates:  '2018-01-01'
+#   - Null values:              null  (or ~)
+#   - Lists:                    [Z, N, E]  or multi-line with dashes
+#   - Booleans:                 true / false
+# =============================================================================
+
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+paths:
+  # Working directory that contains templates/ results/ etc.
+  base_dir: "./template_matching"          # default: ./template_matching
+
+  # Directory with template MiniSEED files and template_info.csv
+  templates_dir: "./templates"             # default: ./templates
+
+  # Directory for detection CSV and marker output
+  output_dir: "./results"                  # default: ./results
+
+  # Directory for evaluation & QC plots
+  plots_dir: "./plots"                     # default: ./plots
+
+  # (Optional) path to an original catalog CSV for comparison plots.
+  # Must contain a 'time' column (and optionally 'lat', 'lon', 'magnitude').
+  catalog_file: null                       # default: null (disabled)
+
+  # CSV file inside templates_dir that lists each template's metadata
+  # (template_id, event_name, amplitude, magnitude, lat, lon, …)
+  template_info_file: "template_info.csv"  # default: template_info.csv
+
+
+# ---------------------------------------------------------------------------
+# Station(s)
+# ---------------------------------------------------------------------------
+stations:
+  # Single-station code (used when networks list is empty)
+  station_code: "MOED"                     # default: GWBD
+
+  # Channels available at the station (order matters for component stacking)
+  channels: ["Z", "N", "E"]               # default: [Z, N, E]
+
+  # Primary channel for single-component matching and clustering
+  primary_channel: "Z"                     # default: Z
+
+  # Station coordinates (used for distance correction in magnitude estimation)
+  lat: 50.114                              # default: 50.114
+  lon: 7.9021                              # default: 7.9021
+
+  # --- Multi-station settings ---
+
+  # List of stations for multi-station matching.  If non-empty, each entry
+  # must have: code, network, channels, lat, lon, weight.
+  # Example:
+  #   networks:
+  #     - code: MOED
+  #       network: GR
+  #       channels: [Z, N, E]
+  #       lat: 50.114
+  #       lon: 7.902
+  #       weight: 1.0
+  #     - code: GWBD
+  #       network: GR
+  #       channels: [Z]
+  #       lat: 50.12
+  #       lon: 7.91
+  #       weight: 0.8
+  networks: []                             # default: [] (single-station mode)
+
+  # When true, correlate on ALL channels and stack CC traces.
+  # Requires multi-component templates.
+  use_all_components: false                # default: false
+
+  # How to stack per-component CC traces: mean, median, pws (phase-weighted)
+  stacking_method: "mean"                  # default: mean
+
+  # Relative weight per channel when stacking (keys = channel suffixes)
+  component_weights:
+    Z: 1.0                                 # default: 1.0
+    N: 0.5                                 # default: 0.5
+    E: 0.5                                 # default: 0.5
+
+
+# ---------------------------------------------------------------------------
+# Template Creation
+# ---------------------------------------------------------------------------
+template_creation:
+  # Seconds before and after the event origin for waveform cut
+  pre_event: 0.5                           # default: 0.5
+  post_event: 5.0                          # default: 5.0
+
+  # STA/LTA trigger parameters (used for automatic onset detection)
+  sta_window: 0.5                          # default: 0.5  (seconds)
+  lta_window: 5.0                          # default: 5.0  (seconds)
+  onset_thr_on: 3.5                        # default: 3.5  (STA/LTA ratio to declare ON)
+  onset_thr_off: 1.0                       # default: 1.0  (STA/LTA ratio to declare OFF)
+
+  # Bandpass filter (Hz) applied to waveforms before cutting
+  filter_min: 1.0                          # default: 1.0
+  filter_max: 30.0                         # default: 30.0
+
+  # How to measure template amplitude:  max | rms | percentile | envelope
+  amplitude_method: "max"                  # default: max
+
+  # Percentile to use when amplitude_method = percentile
+  amplitude_percentile: 95.0               # default: 95.0
+
+  # Pre-event noise window (seconds) for SNR estimation during creation.
+  # If omitted, defaults to pre_event.
+  noise_window: 0.5                        # default: (same as pre_event)
+
+  # (Optional) path to a Pyrocko Snuffler markers file.
+  # If provided, marker onset/end times override the STA/LTA trigger.
+  snuffler_markers_file: null              # default: null (disabled)
+
+  # Tolerance (seconds) when matching a catalog event to the nearest marker
+  marker_match_tolerance: 120.0            # default: 120.0
+
+
+# ---------------------------------------------------------------------------
+# Template Matching
+# ---------------------------------------------------------------------------
+template_matching:
+  # Processing time range
+  start_date: "2018-01-01"                 # default: 2018-01-01
+  days_to_process: 365                     # default: 365
+
+  # Correlation threshold: detections below this CC value are discarded
+  similarity_threshold: 0.5                # default: 0.5
+
+  # Minimum SNR of continuous data to attempt matching (set < 0 to disable)
+  min_snr: 2.0                             # default: 2.0
+
+  # Spike / artifact filter threshold.  Uses a two-window approach:
+  # peak amplitude in ±0.5 s vs. MAD-based noise estimate from ±10 s.
+  # Real events: ratio typically 3–15;  spikes/glitches: >20.
+  min_spike_ratio: 15.0                    # default: 15.0
+
+  # Minimum distance (in samples) between accepted CC peaks
+  distance_samples: 200                    # default: 200
+
+  # --- Template clustering ---
+  # Group similar templates before matching.  Only one representative
+  # per cluster is correlated — saves processing time.
+  cluster_enabled: true                    # default: true
+  cluster_eps: 0.2                         # default: 0.2  (DBSCAN ε)
+
+  # Number of parallel workers (CPU matching)
+  n_jobs: 4                                # default: 4
+
+  # Amplitude measurement window (seconds relative to detection peak)
+  pre_amplitude: 0.5                       # default: 0.5
+  post_amplitude: 6.0                      # default: 6.0
+
+  # Amplitude measurement method (same options as template_creation)
+  amplitude_method: "max"                  # default: max
+  amplitude_percentile: 95.0               # default: 95.0
+
+  # Correlation domain:  fft | time | wavelet | wst (wavelet scattering)
+  domain: "fft"                            # default: fft
+
+  # Seconds before/after detection for QC waveform comparison plots
+  pre_event: 0.5                           # default: 0.5
+  post_event: 5.0                          # default: 5.0
+
+  # --- Continuous Wavelet Transform (CWT) correlation (domain=wavelet) ---
+  wavelet:
+    num_scales: 12                         # default: 12
+    min_period: 0.05                       # default: 0.05  (seconds)
+    max_period: 0.5                        # default: 0.5   (seconds)
+    wavelet_w: 6.0                         # default: 6.0   (Morlet parameter ω₀)
+    scale_weighting: "uniform"             # default: uniform  (or "energy")
+    decimate_factor: 1                     # default: 1  (no decimation)
+    reuse_signal_cwt: true                 # default: true
+
+  # --- Wavelet Scattering Transform (domain=wst) ---
+  wst:
+    window_seconds: 5.5                    # default: 5.5  (scattering window)
+    hop_seconds: 0.1                       # default: 0.1  (sliding step)
+    J: 6                                   # default: 6    (octaves / scales)
+    Q: 8                                   # default: 8    (quality factor)
+    max_order: 2                           # default: 2    (scattering order)
+    metric: "cosine"                       # default: cosine  (or "euclidean")
+    similarity_threshold: null             # default: null (uses global threshold)
+    pad_mode: "zero"                       # default: zero
+    backend: "numpy"                       # default: numpy  (or "torch")
+    device: "cpu"                          # default: cpu    (or "cuda:0")
+
+
+# ---------------------------------------------------------------------------
+# Detection Quality Control
+# ---------------------------------------------------------------------------
+detection_qc:
+  # Compute signal-to-noise ratio for each detection
+  compute_snr: true                        # default: true
+  snr_noise_window: 2.0                    # default: 2.0  (seconds before pick)
+  snr_signal_window: 2.0                   # default: 2.0  (seconds after pick)
+
+  # Compute CC peak sharpness (higher = more confident pick)
+  compute_cc_sharpness: true               # default: true
+  cc_sharpness_window: 20                  # default: 20   (samples around peak)
+
+  # Discard detections whose SNR is below this value (0 = keep all)
+  min_detection_snr: 0.0                   # default: 0.0
+
+  # Reject detections within this many seconds of day start/end.
+  # Eliminates spurious peaks caused by bandpass-filter ringing and
+  # CC normalisation instabilities at SDS file boundaries.
+  edge_margin_seconds: 120.0               # default: 120.0
+
+  # Edge margin: ignore detections within this many seconds of the
+  # start or end of each day's data.  The CC normalisation is unstable
+  # at day boundaries, producing spurious high-similarity picks near
+  # midnight.  Set >= template duration (typically 5-10 s).
+  edge_margin_seconds: 10.0                # default: 10.0
+
+
+# ---------------------------------------------------------------------------
+# Evaluation / Magnitude Estimation
+# ---------------------------------------------------------------------------
+evaluation:
+  # Magnitude calibration method:
+  #   bayes     — Bayesian hierarchical model (requires PyMC)
+  #   isotonic  — Isotonic + linear extrapolation (sklearn)
+  #   ratio     — Simple amplitude ratio  M = M_tpl + log10(A_det/A_tpl)
+  calibration_method: "isotonic"           # default: isotonic
+
+  # Reference distance (km) for geometrical spreading correction
+  reference_distance: 1.0                  # default: 1.0
+
+  # Geometrical spreading exponent γ  (amplitude ∝ R^−γ)
+  geometrical_spreading: 1.0              # default: 1.0
+
+  # Attenuation factor (reserved for future use)
+  attenuation_factor: 1.0                  # default: 1.0
+
+  # Discard events below this magnitude in summary statistics
+  min_magnitude: 0.0                       # default: 0.0
+
+  # Completeness magnitude (Mc) estimation method:
+  #   maxcurvature — mode of FMD + capped 0.2 correction (Woessner & Wiemer 2005)
+  mc_method: "maxcurvature"                # default: maxcurvature
+
+  # --- Optional evaluation steps (toggle to speed up evaluation) ---
+
+  # Spectral magnitude estimation (approximate proxy from amplitude columns).
+  # Only useful when multiple amplitude measures are available.
+  compute_spectral: false                  # default: false
+
+  # Per-template station corrections from magnitude residuals
+  compute_station_corrections: true        # default: true
+
+  # Magnitude uncertainty columns (similarity-based + per-template spread)
+  compute_uncertainty: true                # default: true
+
+  # Compute magnitudes for ALL amplitude representations (max, rms,
+  # percentile, envelope).  Produces detections_with_magnitude_multi.csv.
+  # Slowest step — disable unless you need per-method comparison.
+  compute_all_amplitude_methods: false     # default: false
+
+  # Generate waveform comparison plots (loads waveforms for each detection)
+  plot_waveform_comparisons: true          # default: true
+
+
+# ---------------------------------------------------------------------------
+# Relative Relocation Export
+# ---------------------------------------------------------------------------
+relocation:
+  # Enable export of differential travel-time files for relocation
+  enabled: false                           # default: false
+
+  # Output format:  hypodd (dt.cc) | growclust
+  output_format: "hypodd"                 # default: hypodd
+
+  # Maximum number of CC-based dt pairs per event
+  max_dt_cc_pairs: 50                      # default: 50
+
+  # Minimum CC value to include a dt measurement
+  min_cc_for_dt: 0.5                       # default: 0.5
+
+  # Path to a 1-D velocity model file (optional, for ray-tracing dt)
+  velocity_model: null                     # default: null
+
+
+# ---------------------------------------------------------------------------
+# Template Self-Updating
+# ---------------------------------------------------------------------------
+template_updating:
+  # Enable automatic addition of high-quality detections as new templates
+  enabled: false                           # default: false
+
+  # Only promote detections with CC ≥ this value
+  min_similarity: 0.8                      # default: 0.8
+
+  # Only promote detections with SNR ≥ this value
+  min_snr: 5.0                             # default: 5.0
+
+  # Maximum total number of templates (caps library growth)
+  max_templates: 500                       # default: 500
+
+  # Re-check for new templates every N days
+  update_interval_days: 30                 # default: 30
+
+
+# ---------------------------------------------------------------------------
+# Real-Time Mode
+# ---------------------------------------------------------------------------
+realtime:
+  # Enable continuous real-time monitoring
+  enabled: false                           # default: false
+
+  # File to persist processing state between restarts
+  state_file: "quakeflow_state.json"       # default: quakeflow_state.json
+
+  # Process data in chunks of this many hours
+  chunk_hours: 1                           # default: 1
+
+  # Trigger an alert when CC exceeds this threshold
+  alert_threshold: 0.8                     # default: 0.8
+
+  # Callable or HTTP endpoint URL for alert notifications.
+  # Can be a Python path like 'mymodule.alert_func' or an HTTP POST URL.
+  alert_callback: null                     # default: null (no alerts)
+
+
+# ---------------------------------------------------------------------------
+# GPU Acceleration
+# ---------------------------------------------------------------------------
+gpu:
+  # Enable GPU-accelerated cross-correlation (requires CuPy or PyTorch)
+  enabled: false                           # default: false
+
+  # GPU backend:  cupy | torch
+  backend: "cupy"                          # default: cupy
+
+  # Number of templates per GPU batch
+  batch_size: 32                           # default: 32
+
+  # CUDA device identifier
+  device: "cuda:0"                         # default: cuda:0
+
+
+# ---------------------------------------------------------------------------
+# Pyrocko Squirrel Data Access  (default waveform backend)
+# ---------------------------------------------------------------------------
+# Used when sds.root is NOT set.  Requires pyrocko to be installed.
+squirrel:
+  # Name of the persistent Squirrel database (stores waveform index)
+  persistent: "myproject"                  # default: eifel3
+
+
+# ---------------------------------------------------------------------------
+# SDS Archive Waveform Access  (alternative waveform backend)
+# ---------------------------------------------------------------------------
+# Set sds.root to a directory path to use the SDS backend instead of Squirrel.
+# SDS layout: <root>/<year>/<net>/<sta>/<cha>.<type>/<net>.<sta>.<loc>.<cha>.<type>.<year>.<jday>
+# This does NOT require pyrocko — only ObsPy.
+sds:
+  root: null                               # default: null (disabled; set path to enable)
+  type: "D"                                # default: D (waveform data)
+  cache_size: 64                           # default: 64 (day-files kept in LRU cache)
+  max_workers: 8                           # default: 8 (threads for parallel I/O)
+  fileborder_seconds: 30.0                 # default: 30.0 (extra seconds at day boundaries)
+
+
+# ---------------------------------------------------------------------------
+# Qseek Catalog Quality Filter (catalog_type = "qseek")
+# ---------------------------------------------------------------------------
+# Applied when using --type qseek with a qseek run folder.
+# Events failing any criterion are excluded before template creation.
+qseek_filter:
+  min_semblance: 0.3                       # default: 0.3
+  min_n_picks: 6                           # default: 6
+  max_uncertainty_horizontal: 500.0        # default: 500.0 (metres)

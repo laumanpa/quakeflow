@@ -39,14 +39,12 @@ template_creation:
   marker_match_tolerance: 2.0
 template_matching:
   cluster_eps: 0.2
-  # If false, clustering of templates is disabled and all templates are kept
-  cluster_enabled: false
-  days_to_process: 4000
+  days_to_process: 1
   distance_samples: 200
   min_spike_ratio: 3.0
-  n_jobs: 4
+  n_jobs: 1
   post_amplitude: 6.0
   pre_amplitude: 0.5
-  similarity_threshold: 0.6
+  similarity_threshold: 0.5
   start_date: '2018-01-01'
   min_snr: -1000.0
