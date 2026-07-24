@@ -184,14 +184,13 @@ class SDSWaveformClient:
                             if not (fname.endswith(f".{self.sds_type}.{year}.{jday_padded}")
                                     or fname.endswith(f".{self.sds_type}.{year}.{jday_unpadded}")):
                                 continue
-                            if True:  # formerly: fnmatch.fnmatch(fpath.name, pattern)
-                                # Optionally filter by location in filename
-                                parts = fpath.name.split(".")
-                                if len(parts) >= 4:
-                                    file_loc = parts[2]
-                                    if not fnmatch.fnmatch(file_loc, location):
-                                        continue
-                                files.append(fpath)
+                            # Optionally filter by location in filename
+                            parts = fpath.name.split(".")
+                            if len(parts) >= 4:
+                                file_loc = parts[2]
+                                if not fnmatch.fnmatch(file_loc, location):
+                                    continue
+                            files.append(fpath)
         return files
 
     # ------------------------------------------------------------------

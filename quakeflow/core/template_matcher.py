@@ -180,7 +180,7 @@ class TemplateMatcher(BaseProcessor):
         actual detection window.  After filtering the padded data is
         trimmed back to the requested day.
         """
-        padding = float(self.config.get('detection_qc.edge_margin_seconds', 10.0))
+        padding = float(self.config.get('detection_qc.edge_margin_seconds', 120.0))
         # Always use at least 120 s padding to absorb filter transient
         padding = max(padding, 120.0)
 
@@ -286,14 +286,16 @@ class TemplateMatcher(BaseProcessor):
         # Diagnostic logging
         n_total = len(detections)
         n_kept = len(filtered)
-        if n_total > 0:
+        if n_total > 0 and (n_spike > 0 or n_no_data > 0):
             ratio_str = ""
             if ratios:
-                ratio_str = (f" (peak/noise ratios: "
-                            f"min={min(ratios):.1f}, "
-                            f"median={np.median(ratios):.1f}, "
-                            f"max={max(ratios):.1f})")
-        
+                ratio_str = (f", peak/noise min={min(ratios):.1f} "
+                             f"median={np.median(ratios):.1f} max={max(ratios):.1f}")
+            console.print(
+                f"[dim]Spike filter: kept {n_kept}/{n_total} "
+                f"(rejected {n_spike} spikes, {n_no_data} no-data){ratio_str}[/dim]"
+            )
+
         return filtered
     
     def measure_event_amplitude(self, z_trace, 
@@ -375,40 +377,50 @@ class TemplateMatcher(BaseProcessor):
         - If cluster has multiple templates: keep only the representative (medoid)
         """
         vectors = []
+        # Track which template_list index each vector came from so that
+        # skipped templates (missing primary channel) do not shift the
+        # mapping between DBSCAN row indices and template_list positions.
+        vec_orig_idx = []
         primary = str(self.config.get('stations.primary_channel', 'Z'))
-        for tpl in template_list:
+        for orig_idx, tpl in enumerate(template_list):
             tr = self._choose_channel_trace(tpl[0], primary)
             if tr is None:
                 continue
             vectors.append(self.template_to_vector(tr))
-        
+            vec_orig_idx.append(orig_idx)
+
+        if not vectors:
+            console.print("[yellow]No templates had the primary channel; skipping clustering[/yellow]")
+            return template_list, {i: [i] for i in range(len(template_list))}
+
         X = np.vstack(vectors)
         dist = cosine_distances(X)
-        
+
         clustering = DBSCAN(
             eps=eps,
             min_samples=1,
             metric="precomputed"
         ).fit(dist)
-        
+
         clusters = {}
         for idx, lbl in enumerate(clustering.labels_):
             clusters.setdefault(lbl, []).append(idx)
-        
+
         repr_templates = []
         repr_map = {}
-        
+
         for cid, indices in clusters.items():
             if len(indices) == 1:
                 medoid = indices[0]
             else:
                 sub = dist[np.ix_(indices, indices)]
-                medoid = indices[np.argmin(sub.sum(axis=1))]
-            
+                medoid = indices[int(np.argmin(sub.sum(axis=1)))]
+
             rid = len(repr_templates)
-            repr_templates.append(template_list[medoid])
-            repr_map[rid] = indices
-        
+            # Translate DBSCAN row indices back to template_list positions.
+            repr_templates.append(template_list[vec_orig_idx[medoid]])
+            repr_map[rid] = [vec_orig_idx[i] for i in indices]
+
         return repr_templates, repr_map
 
     def _normalized_xcorr_fft(self, signal: np.ndarray,
@@ -435,9 +447,13 @@ class TemplateMatcher(BaseProcessor):
         # FFT-based convolution
         corr = fftconvolve(signal, template[::-1], mode="valid")
 
-        # Sliding window energy calculation (float64 precision)
-        window_energy = np.convolve(signal ** 2, np.ones(len(template)), mode="valid")
-        
+        # Sliding-window energy via prefix sums: O(N) instead of the O(N*M)
+        # direct convolution `np.convolve(signal**2, ones(M))`.  For a full
+        # day of 100 Hz data this replaces billions of operations per template.
+        m = len(template)
+        cs = np.concatenate(([0.0], np.cumsum(signal ** 2)))
+        window_energy = cs[m:] - cs[:-m]
+
         # Avoid division by zero in denominator
         window_energy = np.maximum(window_energy, 1e-20)
         
@@ -465,7 +481,9 @@ class TemplateMatcher(BaseProcessor):
         try:
             from scipy.signal import cwt as sp_cwt, morlet2 as sp_morlet2
         except Exception as e:
-            raise RuntimeError(f"Wavelet mode requires scipy.signal.cwt/morlet2: {e}")
+            raise RuntimeError(f"Wavelet domain requires scipy.signal.cwt/morlet2, which were "
+                    f"removed in SciPy>=1.13. Install 'scipy<1.13' to use "
+                    f"domain=wavelet, or switch to domain=fft/wst. ({e})")
 
         signal = signal.astype(np.float64)
         template = template.astype(np.float64)
@@ -513,7 +531,9 @@ class TemplateMatcher(BaseProcessor):
         try:
             from scipy.signal import cwt as sp_cwt, morlet2 as sp_morlet2
         except Exception as e:
-            raise RuntimeError(f"Wavelet mode requires scipy.signal.cwt/morlet2: {e}")
+            raise RuntimeError(f"Wavelet domain requires scipy.signal.cwt/morlet2, which were "
+                    f"removed in SciPy>=1.13. Install 'scipy<1.13' to use "
+                    f"domain=wavelet, or switch to domain=fft/wst. ({e})")
 
         template = template.astype(np.float64)
         Wy = sp_cwt(template, sp_morlet2, widths, w=w)
@@ -763,7 +783,7 @@ class TemplateMatcher(BaseProcessor):
 
             # Find local peaks above threshold and respecting minimum distance
             # Edge margin: skip peaks near start/end to avoid CC normalization artifacts
-            _edge_sec = float(self.config.get('detection_qc.edge_margin_seconds', 10.0))
+            _edge_sec = float(self.config.get('detection_qc.edge_margin_seconds', 120.0))
             _sr = sampling_rate if sampling_rate is not None else 100.0
             _edge_samples = int(_edge_sec * _sr)
 
@@ -870,7 +890,9 @@ class TemplateMatcher(BaseProcessor):
                     try:
                         from scipy.signal import cwt as sp_cwt, morlet2 as sp_morlet2
                     except Exception as e:
-                        raise RuntimeError(f"Wavelet mode requires scipy.signal.cwt/morlet2: {e}")
+                        raise RuntimeError(f"Wavelet domain requires scipy.signal.cwt/morlet2, which were "
+                    f"removed in SciPy>=1.13. Install 'scipy<1.13' to use "
+                    f"domain=wavelet, or switch to domain=fft/wst. ({e})")
                     Wx = sp_cwt(x, sp_morlet2, widths, w=w)
                     # Store CWT as complex64 to halve memory (complex128 is overkill for CC)
                     Wx = Wx.astype(np.complex64)
@@ -969,7 +991,7 @@ class TemplateMatcher(BaseProcessor):
 
                 # Edge margin: skip peaks near start/end of the processing window
                 # to avoid spurious detections from CC normalization artifacts
-                _edge_sec = float(self.config.get('detection_qc.edge_margin_seconds', 10.0))
+                _edge_sec = float(self.config.get('detection_qc.edge_margin_seconds', 120.0))
                 _edge_samples = int(_edge_sec * sr_for_time)
 
                 peaks, props = find_peaks(stacked_cc, height=height, distance=distance_idx)
@@ -1174,7 +1196,7 @@ class TemplateMatcher(BaseProcessor):
         # Use the same padding as get_one_day_waveforms so that the taper +
         # filter produce identical waveforms in the template window.
         day_padding = max(
-            float(self.config.get('detection_qc.edge_margin_seconds', 10.0)),
+            float(self.config.get('detection_qc.edge_margin_seconds', 120.0)),
             120.0)
         padding = max(day_padding, 5.0 / fmin)  # at least 5 cycles of the lowest freq
 
@@ -1336,13 +1358,24 @@ class TemplateMatcher(BaseProcessor):
             "n_failed": n_failed,
         }
 
-    def match_templates(self, 
+    def match_templates(self,
                         templates_dir: Path,
                         plot_tsne_pre: bool = False,
                         ignore_template_settings: bool = False,
                         bbox: Optional[tuple] = None,
-                        region: Optional[str] = None) -> Dict:
-        """Main template matching workflow."""
+                        region: Optional[str] = None,
+                        dates: Optional[pd.DatetimeIndex] = None) -> Dict:
+        """Main template matching workflow.
+
+        Parameters
+        ----------
+        dates : pd.DatetimeIndex, optional
+            Explicit list of days to process.  When ``None`` (default) the
+            range is derived from ``template_matching.start_date`` and
+            ``template_matching.days_to_process``.  Real-time/incremental
+            processing passes a specific subset here so the same (correct)
+            template preparation and clustering logic is reused.
+        """
         console.print("[cyan]🔍 Template Matching[/cyan]")
 
         # Optionally load template processing metadata to ensure consistency
@@ -1557,9 +1590,11 @@ class TemplateMatcher(BaseProcessor):
         output_dir = self.config.get_path('base_dir') / "similarity" / f"{station}_{channel}"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Dates
-        start_date = pd.Timestamp(self.config['template_matching.start_date'])
-        dates = pd.date_range(start=start_date, periods=self.config['template_matching.days_to_process'], freq="D")
+        # Dates: use explicit list when provided (incremental mode),
+        # otherwise derive the range from config.
+        if dates is None:
+            start_date = pd.Timestamp(self.config['template_matching.start_date'])
+            dates = pd.date_range(start=start_date, periods=self.config['template_matching.days_to_process'], freq="D")
 
         console.print(f"📅 Processing [bold]{len(dates)}[/bold] days...")
         n_jobs = self.config['template_matching.n_jobs']

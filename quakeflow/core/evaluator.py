@@ -885,9 +885,11 @@ class ResultsEvaluator(BaseProcessor):
         df.loc[valid, "est_magnitude"] = α_post * log_det_amp + β_post
         df.loc[valid, "est_magnitude_std"] = σ_post
         
-        # Also compute magnitude using amplitude ratio method for comparison
+        # Also compute magnitude using amplitude ratio method for comparison.
+        # Use the resolved template-magnitude column (may be `magnitude_tpl`
+        # after the merge) rather than assuming a bare `magnitude` column.
         df.loc[valid, "ratio_magnitude"] = (
-            df.loc[valid, "magnitude"] + 
+            df.loc[valid, tpl_mag_col] +
             np.log10(df.loc[valid, "det_amp_corr"] / df.loc[valid, "tpl_amp_corr"])
         )
         
@@ -1408,7 +1410,7 @@ class ResultsEvaluator(BaseProcessor):
 
         # Post-hoc edge filter: remove detections near day boundaries
         # that are caused by filter ringing / CC normalization artifacts.
-        edge_sec = float(self.config.get('detection_qc.edge_margin_seconds', 10.0))
+        edge_sec = float(self.config.get('detection_qc.edge_margin_seconds', 120.0))
         if edge_sec > 0:
             times = det['time']
             sod = times.dt.hour * 3600 + times.dt.minute * 60 + times.dt.second + times.dt.microsecond / 1e6

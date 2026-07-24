@@ -190,7 +190,25 @@ class BaseProcessor:
             times = pd.to_datetime(df["time"], utc=True, errors="coerce")
             df["event_time"] = times.apply(lambda t: UTCDateTime(t) if pd.notna(t) else None)
             df = df[df["event_time"].notnull()]
-            df["magnitude"] = pd.to_numeric(df.get("ML-south-west-germany", np.nan), errors="coerce")
+            # Resolve the magnitude column robustly.  A dataset-specific
+            # column may be configured via `template_creation.magnitude_column`;
+            # otherwise fall back to a list of common names.  Previously the
+            # column name was hard-coded ("ML-south-west-germany"), which
+            # silently produced an all-NaN magnitude for any other catalog.
+            configured = self.config.get("template_creation.magnitude_column", None)
+            mag_candidates = ([configured] if configured else []) + [
+                "magnitude", "mag", "ML", "Magnitude", "ML-south-west-germany",
+            ]
+            mag_col = next((c for c in mag_candidates if c and c in df.columns), None)
+            if mag_col is not None:
+                df["magnitude"] = pd.to_numeric(df[mag_col], errors="coerce")
+            else:
+                console.print(
+                    "[yellow]Warning: no magnitude column found in catalog "
+                    f"(looked for {[c for c in mag_candidates if c]}); "
+                    "magnitudes set to NaN[/yellow]"
+                )
+                df["magnitude"] = np.nan
             df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
             df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
             df = df.dropna(subset=["lat", "lon"])
@@ -227,7 +245,10 @@ class BaseProcessor:
             df['lat'] = pd.to_numeric(df_raw.iloc[:, 4], errors='coerce')
             df['lon'] = pd.to_numeric(df_raw.iloc[:, 5], errors='coerce')
             if df_raw.shape[1] > 6:
-                df['depth'] = pd.to_numeric(df_raw.iloc[:, 6], errors='coerce')
+                # DLF/.dat depth is given in kilometres; convert to metres so
+                # that downstream travel-time code (which expects source depth
+                # in metres) is fed consistent units.
+                df['depth'] = pd.to_numeric(df_raw.iloc[:, 6], errors='coerce') * 1000.0
             else:
                 df['depth'] = np.nan
 

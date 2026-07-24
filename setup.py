@@ -8,7 +8,7 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
 
 setup(
     name="quakeflow",
-    version="1.0.0",
+    version="2.0.0",
     author="QuakeFlow Team",
     author_email="example@email.com",
     description="A comprehensive template matching and magnitude estimation pipeline",

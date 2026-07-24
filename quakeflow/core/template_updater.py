@@ -54,19 +54,27 @@ class TemplateUpdater(BaseProcessor):
         # Sort by similarity (best first) and take top N
         candidates = candidates.sort_values('similarity', ascending=False)
 
-        # Remove duplicates close in time (keep only the best per time cluster)
+        # Remove duplicates close in time (keep only the best per time cluster).
+        # Greedy in similarity order: keep a candidate only if no already-kept
+        # candidate lies within min_gap_sec.  Uses a sorted list of kept
+        # timestamps + bisect for O(n log n) instead of the previous O(n^2).
+        import bisect
         candidates = candidates.reset_index(drop=True)
-        keep = [True] * len(candidates)
         min_gap_sec = 60.0  # minimum 60 seconds between template events
-        for i in range(1, len(candidates)):
-            t_i = pd.Timestamp(candidates.iloc[i]['time'])
-            for j in range(i):
-                if not keep[j]:
-                    continue
-                t_j = pd.Timestamp(candidates.iloc[j]['time'])
-                if abs((t_i - t_j).total_seconds()) < min_gap_sec:
-                    keep[i] = False
-                    break
+        cand_ts = pd.to_datetime(candidates['time']).astype('int64').to_numpy() / 1e9  # epoch seconds
+        kept_sorted = []  # sorted kept timestamps (seconds)
+        keep = [False] * len(candidates)
+        for i in range(len(candidates)):
+            t_i = float(cand_ts[i])
+            pos = bisect.bisect_left(kept_sorted, t_i)
+            near = False
+            if pos < len(kept_sorted) and (kept_sorted[pos] - t_i) < min_gap_sec:
+                near = True
+            if not near and pos > 0 and (t_i - kept_sorted[pos - 1]) < min_gap_sec:
+                near = True
+            if not near:
+                keep[i] = True
+                kept_sorted.insert(pos, t_i)
         candidates = candidates[keep]
 
         # Limit number

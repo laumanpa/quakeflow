@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from typing import Dict, Optional, Callable
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from obspy import UTCDateTime
 from rich.console import Console
 
@@ -76,7 +76,7 @@ class RealtimeProcessor(BaseProcessor):
             start = pd.Timestamp(start_date)
 
         if end_date is None:
-            end = pd.Timestamp(datetime.utcnow().date()) - pd.Timedelta(days=1)
+            end = pd.Timestamp(datetime.now(timezone.utc).date()) - pd.Timedelta(days=1)
         else:
             end = pd.Timestamp(end_date)
 
@@ -113,92 +113,56 @@ class RealtimeProcessor(BaseProcessor):
         console.print(f"[cyan]📡 Real-time mode: processing {len(dates)} new days[/cyan]")
         console.print(f"   Range: {dates[0].date()} to {dates[-1].date()}")
 
-        # Create matcher and run
+        # Run matching for exactly the requested dates.  Passing `dates`
+        # reuses match_templates' template preparation, SNR filtering and
+        # clustering, guaranteeing consistency with a normal `match` run and
+        # avoiding the previous behaviour of first matching the entire
+        # config date range and then re-processing each day a second time.
         matcher = TemplateMatcher(self.config)
-        result = matcher.match_templates(
-            templates_dir,
-        )
-
-        # The matcher processes its own date range from config.
-        # For true incremental, we override by processing specific dates.
-        station = self.config.get('stations.station_code', 'XXXX')
-        channel = self.config.get('stations.primary_channel', 'Z')
-        output_dir = (
-            self.config.get_path('base_dir') / "similarity" / f"{station}_{channel}"
-        )
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Load templates
-        template_files = sorted(templates_dir.glob("*.mseed"))
-        if not template_files:
-            console.print("[red]No templates found![/red]")
+        result = matcher.match_templates(templates_dir, dates=dates)
+        if not result.get('success'):
+            console.print("[red]Matching failed during incremental run[/red]")
             return {'success': False}
 
-        from obspy import read as obspy_read
-        template_streams = []
-        for f in template_files:
-            st = obspy_read(str(f))
-            st = matcher.apply_bandpass_filter(
-                st,
-                self.config.get('template_creation.filter_min', 1.0),
-                self.config.get('template_creation.filter_max', 30.0),
-            )
-            # Store only a lightweight copy (data is float32 from base.py)
-            template_streams.append([st.copy()])
-            del st
+        output_dir = result.get('output_dir')
+        if output_dir is None:
+            station = self.config.get('stations.station_code', 'XXXX')
+            channel = self.config.get('stations.primary_channel', 'Z')
+            output_dir = self.config.get_path('base_dir') / "similarity" / f"{station}_{channel}"
 
-        # Cluster if enabled
-        cluster_enabled = bool(self.config.get('template_matching.cluster_enabled', True))
-        if cluster_enabled:
-            template_streams, repr_map = matcher.cluster_templates(
-                template_streams,
-                eps=self.config.get('template_matching.cluster_eps', 0.2),
-            )
-
-        # Process each date
+        # Tally detections / fire alerts / update state per processed day
         n_successful = 0
         total_new_dets = 0
         alert_threshold = float(self.config.get('realtime.alert_threshold', 0.8))
-        all_stations = self.get_station_list()
-        extra_stations = [s for s in all_stations if s['code'] != station] if len(all_stations) > 1 else None
 
         for date in dates:
-            success = matcher.process_one_day(
-                date, station, channel,
-                template_streams,
-                self.config.get('template_matching.similarity_threshold', 0.5),
-                self.config.get('template_matching.distance_samples', 200),
-                output_dir,
-                extra_stations=extra_stations,
-            )
-            if success:
+            det_file = output_dir / f"detections_{date.strftime('%Y%m%d')}.csv"
+            day_success = det_file.exists()
+            if day_success:
                 n_successful += 1
-                # Count new detections and check for alerts
-                det_file = output_dir / f"detections_{date.strftime('%Y%m%d')}.csv"
-                if det_file.exists():
-                    try:
-                        day_dets = pd.read_csv(det_file)
-                        total_new_dets += len(day_dets)
+                try:
+                    day_dets = pd.read_csv(det_file)
+                    total_new_dets += len(day_dets)
+                    if alert_callback is not None and 'similarity' in day_dets.columns:
+                        high_cc = day_dets[day_dets['similarity'] >= alert_threshold]
+                        for _, det_row in high_cc.iterrows():
+                            alert_callback(det_row.to_dict())
+                except Exception:
+                    pass
 
-                        # Alert for high-CC detections
-                        if alert_callback is not None:
-                            high_cc = day_dets[day_dets['similarity'] >= alert_threshold]
-                            for _, det_row in high_cc.iterrows():
-                                alert_callback(det_row.to_dict())
-                    except Exception:
-                        pass
-
-            # Update state after each day
             self.state['last_processed_date'] = str(date.date())
-            self.state['total_days_processed'] += 1 if success else 0
-            self.state['total_detections'] += total_new_dets
             self.state['processing_history'].append({
                 'date': str(date.date()),
-                'success': success,
-                'timestamp': datetime.utcnow().isoformat(),
+                'success': day_success,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
             })
-            self._save_state()
-            gc.collect()  # free per-day memory between iterations
+
+        # Update cumulative counters once (previously double-counted inside
+        # the loop because total_new_dets is itself cumulative).
+        self.state['total_days_processed'] += n_successful
+        self.state['total_detections'] += total_new_dets
+        self._save_state()
+        gc.collect()
 
         console.print(f"\n✅ Incremental processing complete: "
                        f"{n_successful}/{len(dates)} days, {total_new_dets} new detections")
