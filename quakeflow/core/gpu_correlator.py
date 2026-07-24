@@ -191,9 +191,11 @@ def _cpu_normalized_xcorr(signal: np.ndarray, template: np.ndarray) -> np.ndarra
 
     # FFT convolution
     corr = fftconvolve(signal, template[::-1], mode='valid')
-    
-    # Window energy with minimum threshold
-    window_energy = np.convolve(signal ** 2, np.ones(len(template)), mode='valid')
+
+    # Window energy via prefix sums (O(N) rather than O(N*M) convolution)
+    m = len(template)
+    cs = np.concatenate(([0.0], np.cumsum(signal ** 2)))
+    window_energy = cs[m:] - cs[:-m]
     window_energy = np.maximum(window_energy, 1e-20)
     
     # Normalization

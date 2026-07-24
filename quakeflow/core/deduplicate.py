@@ -88,21 +88,34 @@ class DetectionDeduplicator(BaseProcessor):
                 best_row['n_duplicate_detections'] = len(cluster_df)
                 best_row['duplicate_template_ids'] = str(cluster_df['template_id'].astype(int).tolist())
                 
-                # Optionally compute weighted averages for amplitude and magnitude
+                # Optionally compute weighted averages for amplitude and magnitude.
+                # Similarity can be negative or sum to zero, which makes
+                # np.average ill-defined (or raises), so clip weights to >=0
+                # and fall back to a plain mean when no positive weight remains.
+                def _weighted_mean(values, weights):
+                    values = np.asarray(values, dtype=float)
+                    weights = np.clip(np.asarray(weights, dtype=float), 0.0, None)
+                    finite = np.isfinite(values) & np.isfinite(weights)
+                    if not finite.any():
+                        return np.nan
+                    values, weights = values[finite], weights[finite]
+                    if weights.sum() <= 0:
+                        return float(values.mean())
+                    return float(np.average(values, weights=weights))
+
                 if 'event_amplitude' in cluster_df.columns:
-                    weights = cluster_df['similarity'].values
-                    weighted_amplitude = np.average(
-                        cluster_df['event_amplitude'].values, 
-                        weights=weights
+                    best_row['event_amplitude'] = _weighted_mean(
+                        cluster_df['event_amplitude'].values,
+                        cluster_df['similarity'].values,
                     )
-                    best_row['event_amplitude'] = weighted_amplitude
-                
+
                 if 'est_magnitude' in cluster_df.columns and cluster_df['est_magnitude'].notna().any():
                     valid_mags = cluster_df['est_magnitude'].dropna()
                     if len(valid_mags) > 0:
-                        weights = cluster_df.loc[valid_mags.index, 'similarity'].values
-                        weighted_mag = np.average(valid_mags.values, weights=weights)
-                        best_row['est_magnitude'] = weighted_mag
+                        best_row['est_magnitude'] = _weighted_mean(
+                            valid_mags.values,
+                            cluster_df.loc[valid_mags.index, 'similarity'].values,
+                        )
                 
                 merged_rows.append(best_row)
         

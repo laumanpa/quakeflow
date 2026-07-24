@@ -676,7 +676,7 @@ def status(
     
     # Check results
     output_dir = config.get_path('output_dir')
-    results_file = output_dir / "detections_with_mag.csv"
+    results_file = output_dir / "detections_with_magnitude.csv"
     table.add_row(
         "Results",
         "✅ Found" if results_file.exists() else "❌ Missing",
@@ -848,19 +848,36 @@ def multi_iterate(
                 
                 if detections_file.exists():
                     detections_df = pd.read_csv(detections_file)
-                    
+
+                    # The evaluated catalog uses `est_magnitude` and carries
+                    # location as `lat`/`lon` or `tpl_lat`/`tpl_lon`.  Resolve
+                    # the actual column names before building the next catalog.
+                    mag_col = next((c for c in ('est_magnitude', 'magnitude')
+                                    if c in detections_df.columns), None)
+                    lat_col = next((c for c in ('lat', 'tpl_lat', 'lat_tpl')
+                                    if c in detections_df.columns), None)
+                    lon_col = next((c for c in ('lon', 'tpl_lon', 'lon_tpl')
+                                    if c in detections_df.columns), None)
+                    if mag_col is None or lat_col is None or lon_col is None:
+                        console.print(
+                            f"  [red]Cannot build next catalog: missing "
+                            f"magnitude/lat/lon columns in {detections_file.name} "
+                            f"(have {list(detections_df.columns)})[/red]"
+                        )
+                        raise typer.Exit(1)
+
                     # Filter detections above magnitude threshold
                     min_mag = config.get('evaluation.min_magnitude', 0.0)
-                    filtered_df = detections_df[detections_df['magnitude'] >= min_mag].copy()
-                    
+                    filtered_df = detections_df[detections_df[mag_col] >= min_mag].copy()
+
                     # Create new catalog with required columns
                     new_catalog_df = pd.DataFrame({
                         'time': pd.to_datetime(filtered_df['time']),
-                        'lat': filtered_df['lat'],
-                        'lon': filtered_df['lon'],
-                        'magnitude': filtered_df['magnitude'],
+                        'lat': filtered_df[lat_col],
+                        'lon': filtered_df[lon_col],
+                        'magnitude': filtered_df[mag_col],
                     })
-                    
+
                     # Add depth if available
                     if 'depth' in filtered_df.columns:
                         new_catalog_df['depth'] = filtered_df['depth']

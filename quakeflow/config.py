@@ -43,6 +43,7 @@ class Config:
             'filter_max': 30.0,
             'amplitude_method': 'max',
             'amplitude_percentile': 95.0,
+            'magnitude_column': None,  # generic-catalog magnitude column name (None = auto-detect)
             'noise_window': None,  # defaults to pre_event at runtime
             'snuffler_markers_file': None,  # path to Pyrocko Snuffler markers file
             'marker_match_tolerance': 120.0,  # seconds tolerance for marker matching

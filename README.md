@@ -584,7 +584,7 @@ template_matching:
   min_snr: 2.0
   similarity_threshold: 0.5
   distance_samples: 200
-  min_spike_ratio: 3.0
+  min_spike_ratio: 15.0
   cluster_eps: 0.2
   cluster_enabled: true
   n_jobs: 4
